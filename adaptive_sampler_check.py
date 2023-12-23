@@ -24,12 +24,25 @@ def fetch_genome(url):
     # Fetch genome size from UCSC.
     return pd.read_csv(url, sep='\t', header=None, names=["chrom", "size"])
 
+def find_overlaps(bed_df):
+    # Find overlaps in BED file
+    # returns a dataframe with the following columns: chrom, start1, end1, start2, end2, overlap
+    overlaps = []
+    for i, row in bed_df.iterrows():
+        for j, row2 in bed_df.iterrows():
+            if row[0] == row2[0] and i < j:
+                ovl = min(row[2], row2[2]) - max(row[1], row2[1])
+                if ovl>0:
+                    overlaps.append([row[0], i+1, j+1, ovl])
+    return pd.DataFrame(overlaps, columns=["chrom", "row1", "row2","overlap"])
+
 # Session flow
 if 'state' not in st.session_state:
     st.session_state['state'] = 0
     st.session_state['bed_df'] = pd.DataFrame()
     st.session_state['bed_columns'] = False
     st.session_state['bed_types'] = False
+    st.session_state['bed_overlaps'] = pd.DataFrame()
     st.session_state['assembly_df'] = pd.DataFrame()
     st.session_state['chrom_error'] = False
     st.session_state['size_error'] = False
@@ -56,11 +69,16 @@ if uploaded_file is not None:
     failed = False
     bytes_data = uploaded_file.getvalue()
     stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
-    string_data = stringio.read()
-    st.session_state['bed_df'] = pd.read_csv(uploaded_file, header=None, sep='\t')
+    string_data = []
+    for line in stringio.readlines():
+        if not line.startswith("track"):
+            string_data.append(line)
+    st.session_state['bed_df'] = pd.read_csv(StringIO("\n".join(string_data)), header=None, sep='\t')
     bed_exp = st.expander("See content of the file")
     bed_exp.write(st.session_state['bed_df'])
     num_cols = st.session_state['bed_df'].shape[1]
+    st.session_state['bed_overlaps'] = find_overlaps(st.session_state['bed_df']).empty
+
     if num_cols < 3:
         st.session_state['bed_columns'] = st.session_state['bed_df'].shape[1]
     res = st.session_state['bed_df'].dtypes
@@ -109,9 +127,13 @@ if st.session_state['state'] > 1:
         bed_results.write(accepted_bed_types)
     else:
         bed_results.write(":white_check_mark: The file has the correct columns types.")
+    if not st.session_state['bed_overlaps']:
+        bed_results.write(":x: The BED file contains overlapping regions")
+    else:
+        bed_results.write(":white_check_mark: The BED does not contain any overlapping regions.")
     # To be implemented
     bed_results.write(":grey_question: The BED file entries are mostly evenly sized.")
-    bed_results.write(":grey_question: The BED does not contain any overlapping regions.")
+    
     bed_results.write(":grey_question: Start coord (col 2) is larger than end coord (col 3)")
 
     ''' :dna: Assembly checks '''
@@ -141,12 +163,12 @@ with col1:
 with col2:
     operator_name = st.text_input("Operator name", key="operator_name", label_visibility='hidden', max_chars=100, placeholder="N. Hvermannsen")
     ''' Operator name '''
-    roi_size = st.slider("ROI size", min_value=minimum_ROI_size, max_value=maximum_ROI_size, key="ROI_slider",value=0.001, step=0.001, format="%.3f", label_visibility='hidden')
+    roi_size = st.slider("ROI size", min_value=0.0, max_value=maximum_ROI_size, key="ROI_slider",value=minimum_ROI_size, step=0.001, format="%.3f", label_visibility='hidden')
     ''' ROI size '''
 
 scol1, scol2, scol3 = st.columns(3)
 with scol1:
-    size_override = st.toggle("Override size limitations", key="size_override", value=False, label_visibility='hidden', disabled=True)
+    size_override = st.toggle("Override size limitations", key="size_override", value=False, label_visibility='hidden')
     ''' Override size limitations '''
 with scol2:
     chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False, label_visibility='hidden', disabled=True)
@@ -154,6 +176,8 @@ with scol2:
 with scol3:
     no_sort = st.toggle("No sorting", key="no_sort", value=False, label_visibility='hidden', disabled=True)
     ''' No sorting '''
+merge_ovls = st.toggle("Merge overlaps", key="merge_overlaps", value=False, label_visibility='hidden', disabled=True)
+''' Merge overlaps'''
 
 @st.cache_data
 def modify_bed(bed_df, assembly_df, roi_size, min_size, minimum_buffer_size):
@@ -189,8 +213,14 @@ if st.button('Generate', disabled=st.session_state['state'] < 2, key="generate_b
     if total_fraction > maximum_ROI_size and not st.session_state['size_override']:
         messages.append(f":x: Total ROI size is larger than the recommended maximum of `{maximum_ROI_size}`")
         bad_bed = True
+    mod_overlaps = find_overlaps(mod_bed)
+    if not mod_overlaps.empty:
+        for i, row in mod_overlaps.iterrows():
+            messages.append(f":x: Found {row[3]} bp overlap in chromosome {row[0]}, bed rows {row[1]} and {row[2]}")
+        bad_bed = True
     if len(messages) == 0 and not bad_bed:
         messages.append(":white_check_mark: Bed modification successful")
+
     total_size = mod_bed[2].sum() - mod_bed[1].sum() / 1000000
     median_size = (mod_bed[2] - mod_bed[1]).median() / 1000000
     messages.append(f":information_source: total size: `{int(np.round(total_size))} mbp` (`{np.round(total_fraction * 100,2)} %` of genome), median size: `{np.round(median_size,2)} mbp`")
@@ -199,6 +229,7 @@ if st.button('Generate', disabled=st.session_state['state'] < 2, key="generate_b
         msg_container.write(msg)
     mod_exp = st.expander("See modified BED")
     mod_exp.write(mod_bed)
+
     st.session_state['mod_bed'] = mod_bed
     if not st.session_state['operator_name']:
         st.error(":exclamation: Operator name is required")
