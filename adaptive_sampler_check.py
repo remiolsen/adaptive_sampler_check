@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from natsort import index_natsorted
 import hashlib
 import time
 import requests
 import json
-from natsort import index_natsorted
 from io import StringIO
 
 version = "0.1.0-dev"
