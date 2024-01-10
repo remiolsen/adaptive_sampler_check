@@ -5,6 +5,7 @@ import hashlib
 import time
 import requests
 import json
+from natsort import index_natsorted
 from io import StringIO
 
 version = "0.1.0-dev"
@@ -50,8 +51,8 @@ def find_overlaps(bed_df):
                     overlaps.append([row[0], i+1, j+1, ovl])
     return pd.DataFrame(overlaps, columns=["chrom", "row1", "row2","overlap"])
 
-# Session flow
-if 'state' not in st.session_state:
+# Session initialization
+def default_state():
     st.session_state['state'] = 0
     st.session_state['bed_df'] = pd.DataFrame()
     st.session_state['bed_columns'] = False
@@ -66,13 +67,23 @@ if 'state' not in st.session_state:
     st.session_state["metadata"] = pd.DataFrame()
     st.session_state["out_bed"] = ""
 
+if 'state' not in st.session_state:
+    default_state()
+
+
 '''
 # Adaptive Sampler Check
 ---
 This performs a series of checks on the input BED file and selected assembly for the Oxford Nanopore adaptive sampling method. 
 Additionally, it it provides the ability to adjust the region of interest (ROI) size to be used to be used by adding a buffer to each site,
 whilst keeping keeping the total and individual ROI sizes within a recommended range.
+'''
 
+if st.button(":rewind: Start over!", key="restart_button", help="This will reset the app to its initial state."):
+    default_state()
+    st.rerun()
+
+'''
 ## 1. :page_facing_up: Upload a BED file
 '''
 
@@ -193,7 +204,7 @@ with scol2:
     chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False, disabled=True,
                             help="This will remove any rows in the BED file that contain chromosomes not present in the selected assembly.")
 with scol3:
-    no_sort = st.toggle("No sorting", key="no_sort", value=False, disabled=True, 
+    no_sort = st.toggle("No sorting", key="no_sort", value=False, 
                         help="This will try to keep the original order of the BED file instead of sorting it by chromosome and start position.")
 merge_ovls = st.toggle("Merge overlaps", key="merge_overlaps", value=False, disabled=True, 
                        help="This will merge overlapping regions in the BED file into a single region.")
@@ -227,7 +238,8 @@ if st.button('Generate', disabled=st.session_state['state'] < 2, key="generate_b
     roi_size = st.session_state['ROI_slider']
     bad_bed, mod_bed, messages = modify_bed(st.session_state['bed_df'], st.session_state['assembly_df'], roi_size, np.round(roi_size * genome_size, 0), minimum_buffer_size)
     if not st.session_state['no_sort']:
-        mod_bed = mod_bed.sort_values(by=[0,1])
+        mod_bed = mod_bed.sort_values(by=1)
+        mod_bed = mod_bed.sort_values(by=0, key=lambda x: np.argsort(index_natsorted(mod_bed[0])))
     total_fraction = (mod_bed[2].sum() - mod_bed[1].sum()) / genome_size
     if total_fraction > maximum_ROI_size and not st.session_state['size_override']:
         messages.append(f":x: Total ROI size is larger than the recommended maximum of `{maximum_ROI_size}`")
@@ -313,4 +325,4 @@ with bcol2:
 '''
 ---
 '''
-st.markdown(f"Created using {program_name} v{version} ({gh_hash}) - [GitHub]({program_url})")
+st.markdown(f"Created using **{program_name}** *v{version} ({gh_hash})* - [GitHub]({program_url})")
