@@ -22,16 +22,20 @@ accepted_bed_types = ['object', 'int64', 'int64', 'int64', 'int64', 'object']
 minimum_ROI_size = 0.001
 maximum_ROI_size = 0.1
 
-@st.cache_data
+@st.cache_data(persist=True)
 def fetch_genome(url):
     # Fetch genome size from UCSC.
     return pd.read_csv(url, sep='\t', header=None, names=["chrom", "size"])
 
-@st.cache_data
+@st.cache_data(persist=True)
 def fetch_github_sha(url):
     # Fetch the latest commit SHA from GitHub
-    response = requests.get(url).text
-    return json.loads(response)["object"]["sha"][:7]
+    try:
+        response = requests.get(url).text
+    except HTTPError as e:
+        return ":exclamation: HTTP error fetching commit hash"
+    result = json.loads(response)["object"]["sha"][:7]
+    return f"{result}"
 
 
 def find_overlaps(bed_df):
@@ -107,10 +111,9 @@ if uploaded_file is not None:
 
 assembly = st.selectbox("Choose an assembly", genomes, index=1, key="assembly_select", disabled=st.session_state['state'] > 1, 
                         help="This will fetch the size information for the chromosomes in your BED file.")
-#fetch_button = st.button('Fetch', disabled=st.session_state['state'] > 1, key="fetch_button")
 assembly_df = pd.DataFrame()
 assembly_exp = st.expander("See content of the assembly")
-#if st.session_state['state'] < 2 and fetch_button:
+
 if st.button('Fetch', disabled=st.session_state['state'] > 2, key="fetch_button"):
     assembly_df = fetch_genome(genomes.index[genomes["Assembly"] == assembly][0])
     st.session_state['assembly_df'] = assembly_df
