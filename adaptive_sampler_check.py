@@ -135,10 +135,10 @@ if st.session_state['state'] < 3 and not st.session_state['assembly_df'].empty:
         if chrom not in st.session_state['assembly_df']["chrom"].values:
             st.session_state['chrom_error'] = chrom
     for i, row in st.session_state['bed_df'].iterrows():
-        if not st.session_state['chrom_error'] and row[2] > st.session_state['assembly_df'].loc[st.session_state['assembly_df']["chrom"] == row[0], "size"].values[0]:
+        if row[0] not in st.session_state['assembly_df']["chrom"].values:
+            pass
+        elif row[2] > st.session_state['assembly_df'].loc[st.session_state['assembly_df']["chrom"] == row[0], "size"].values[0]:
             st.session_state['size_error'] = row[1]
-        elif st.session_state['chrom_error']:
-            st.session_state['size_error'] = "Not found"
 
 '''
 ## 3. :sleuth_or_spy: QC results
@@ -201,7 +201,7 @@ with scol1:
     size_override = st.toggle("Override size limitations", key="size_override", value=False,
                               help="This will override the allowable recommended minimum and maximum ROI sizes. Use with caution.")
 with scol2:
-    chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False, disabled=True,
+    chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False,
                             help="This will remove any rows in the BED file that contain chromosomes not present in the selected assembly.")
 with scol3:
     no_sort = st.toggle("No sorting", key="no_sort", value=False, 
@@ -210,7 +210,7 @@ merge_ovls = st.toggle("Merge overlaps", key="merge_overlaps", value=False, disa
                        help="This will merge overlapping regions in the BED file into a single region.")
 
 @st.cache_data
-def modify_bed(bed_df, assembly_df, roi_size, min_size, minimum_buffer_size):
+def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
     mod_bed = bed_df.copy()
     messages = []
     bad_bed = False
@@ -236,7 +236,10 @@ if st.button('Generate', disabled=st.session_state['state'] < 2, key="generate_b
     bad_bed = False
     genome_size = st.session_state['assembly_df']["size"].sum()
     roi_size = st.session_state['ROI_slider']
-    bad_bed, mod_bed, messages = modify_bed(st.session_state['bed_df'], st.session_state['assembly_df'], roi_size, np.round(roi_size * genome_size, 0), minimum_buffer_size)
+    input_bed = st.session_state['bed_df']
+    if st.session_state['chrom_prune']:
+        input_bed = input_bed[input_bed[0].isin(st.session_state['assembly_df']["chrom"])]
+    bad_bed, mod_bed, messages = modify_bed(input_bed, st.session_state['assembly_df'], np.round(roi_size * genome_size, 0), minimum_buffer_size)
     if not st.session_state['no_sort']:
         mod_bed = mod_bed.sort_values(by=1)
         mod_bed = mod_bed.sort_values(by=0, key=lambda x: np.argsort(index_natsorted(mod_bed[0])))
