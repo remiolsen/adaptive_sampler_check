@@ -3,11 +3,14 @@ import pandas as pd
 import numpy as np
 import hashlib
 import time
+import requests
+import json
 from io import StringIO
 
 version = "0.1.0-dev"
 program_name = "Adaptive Sampler Check"
 program_url = "https://github.com/remiolsen/adaptive_sampler_check/"
+program_gh_api = "https://api.github.com/repos/remiolsen/adaptive_sampler_check/git/refs/heads/main"
 st.set_page_config(page_title=f"{program_name} v{version}", page_icon=":scissors:", initial_sidebar_state="expanded")
 genomes = pd.DataFrame({"https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/hs1.chrom.sizes.txt": "human (T2T CHM13v2.0/hs1)", 
                         "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.chrom.sizes": "human (GRCh38/hg38)", 
@@ -23,6 +26,13 @@ maximum_ROI_size = 0.1
 def fetch_genome(url):
     # Fetch genome size from UCSC.
     return pd.read_csv(url, sep='\t', header=None, names=["chrom", "size"])
+
+@st.cache_data
+def fetch_github_sha(url):
+    # Fetch the latest commit SHA from GitHub
+    response = requests.get(url).text
+    return json.loads(response)["object"]["sha"][:7]
+
 
 def find_overlaps(bed_df):
     # Find overlaps in BED file
@@ -62,7 +72,11 @@ whilst keeping keeping the total and individual ROI sizes within a recommended r
 ## 1. :page_facing_up: Upload a BED file
 '''
 
-uploaded_file = st.file_uploader("Upload a BED file", key="bed_uploader", disabled=st.session_state['state'] > 0, label_visibility='hidden')
+uploaded_file = st.file_uploader("Upload a BED file", key="bed_uploader", disabled=st.session_state['state'] > 0,
+                                 help="""
+                                 A minmum of 3 columns are required: chromosome, start, end. 
+                                 Specification of the BED format can be found in the UCSC genome browser FAQ, [here](https://genome.ucsc.edu/FAQ/FAQformat.html#format1).
+                                 """)
 
 # To read file as bytes:
 if uploaded_file is not None:
@@ -91,7 +105,8 @@ if uploaded_file is not None:
 ## 2. :dna: Choose an assembly
 '''
 
-assembly = st.selectbox("Choose and assembly", genomes, index=1, key="assembly_select", disabled=st.session_state['state'] > 1, label_visibility='hidden')
+assembly = st.selectbox("Choose an assembly", genomes, index=1, key="assembly_select", disabled=st.session_state['state'] > 1, 
+                        help="This will fetch the size information for the chromosomes in your BED file.")
 #fetch_button = st.button('Fetch', disabled=st.session_state['state'] > 1, key="fetch_button")
 assembly_df = pd.DataFrame()
 assembly_exp = st.expander("See content of the assembly")
@@ -156,28 +171,29 @@ if st.session_state['state'] > 1:
 col1, col2 = st.columns(2)
 
 with col1:
-    experiment_name = st.text_input("Experiment name", key="experiment_name", label_visibility='hidden', max_chars=100, placeholder="adaptive_sampling_01")
-    ''' Experiment name '''
-    minimum_buffer_size = st.number_input("Minimum buffer size (bp)", min_value=10000, max_value=10000000, key="min_buffer_size", value=40000, step=10000, format="%d", label_visibility='hidden')
-    ''' Minimum buffer size (bp) '''
+    experiment_name = st.text_input("Experiment name", key="experiment_name", max_chars=100, placeholder="adaptive_sampling_01")
+    minimum_buffer_size = st.number_input("Minimum buffer size (bp)", min_value=10000, max_value=10000000, key="min_buffer_size", value=40000, step=10000, format="%d",
+                                            help="""
+                                            In cases where expansion of the ROI is restricted (e.g, beginning and ends of chromosomes) the program requires a minimum buffer to expand into (default: 40000bp).
+                                            If this buffer is not available the sequencing run might not be able to cover the entire ROI.
+                                            """)
 with col2:
-    operator_name = st.text_input("Operator name", key="operator_name", label_visibility='hidden', max_chars=100, placeholder="N. Hvermannsen")
-    ''' Operator name '''
-    roi_size = st.slider("ROI size", min_value=0.0, max_value=maximum_ROI_size, key="ROI_slider",value=minimum_ROI_size, step=0.001, format="%.3f", label_visibility='hidden')
-    ''' ROI size '''
+    operator_name = st.text_input("Operator name", key="operator_name", max_chars=100, placeholder="N. Hvermannsen")
+    roi_size = st.slider("ROI size", min_value=0.0, max_value=maximum_ROI_size, key="ROI_slider",value=minimum_ROI_size, step=0.001, format="%.3f",
+                         help="This will expand the size of the ROIs of the input bed file to a selected minimum size (default: 0.1pct of the genome size)")
 
 scol1, scol2, scol3 = st.columns(3)
 with scol1:
-    size_override = st.toggle("Override size limitations", key="size_override", value=False, label_visibility='hidden')
-    ''' Override size limitations '''
+    size_override = st.toggle("Override size limitations", key="size_override", value=False,
+                              help="This will override the allowable recommended minimum and maximum ROI sizes. Use with caution.")
 with scol2:
-    chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False, label_visibility='hidden', disabled=True)
-    ''' Prune missing chroms '''
+    chrom_prune = st.toggle("Prune missing chroms", key="chrom_prune", value=False, disabled=True,
+                            help="This will remove any rows in the BED file that contain chromosomes not present in the selected assembly.")
 with scol3:
-    no_sort = st.toggle("No sorting", key="no_sort", value=False, label_visibility='hidden', disabled=True)
-    ''' No sorting '''
-merge_ovls = st.toggle("Merge overlaps", key="merge_overlaps", value=False, label_visibility='hidden', disabled=True)
-''' Merge overlaps'''
+    no_sort = st.toggle("No sorting", key="no_sort", value=False, disabled=True, 
+                        help="This will try to keep the original order of the BED file instead of sorting it by chromosome and start position.")
+merge_ovls = st.toggle("Merge overlaps", key="merge_overlaps", value=False, disabled=True, 
+                       help="This will merge overlapping regions in the BED file into a single region.")
 
 @st.cache_data
 def modify_bed(bed_df, assembly_df, roi_size, min_size, minimum_buffer_size):
@@ -251,6 +267,7 @@ if st.button('Generate', disabled=st.session_state['state'] < 2, key="generate_b
 mod_bed_name = f"{experiment_name}.bed"
 local_time = time.localtime()
 tzname_local = local_time.tm_zone
+gh_hash = fetch_github_sha(program_gh_api)
 if st.session_state['state'] > 3:
     st.session_state["out_bed"] = st.session_state['mod_bed'].to_csv(index=False, sep="\t", header=False)
     st.session_state["metadata"] = pd.DataFrame({"key":[
@@ -264,7 +281,8 @@ if st.session_state['state'] > 3:
                                         "download_bed_md5",
                                         "date_generated",
                                         "version",
-                                        "program_url"
+                                        "program_url",
+                                        "program_latest_commit"
                                 ],
                                 "value": [
                                         st.session_state['operator_name'],
@@ -277,7 +295,8 @@ if st.session_state['state'] > 3:
                                         hashlib.md5(st.session_state["out_bed"].encode('utf-8')).hexdigest(),
                                         pd.Timestamp.now(tz=tzname_local).isoformat(timespec='seconds'),
                                         version,
-                                        program_url
+                                        program_url,
+                                        gh_hash
                                         ]
                                 })
     st.table(st.session_state["metadata"])
@@ -291,4 +310,4 @@ with bcol2:
 '''
 ---
 '''
-st.markdown(f"Created using {program_name} v{version} - [GitHub]({program_url})")
+st.markdown(f"Created using {program_name} v{version} ({gh_hash}) - [GitHub]({program_url})")
