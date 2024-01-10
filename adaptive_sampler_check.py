@@ -4,8 +4,7 @@ import numpy as np
 from natsort import index_natsorted
 import hashlib
 import time
-import requests
-import json
+import subprocess
 from io import StringIO
 
 version = "0.1.0-dev"
@@ -30,13 +29,12 @@ def fetch_genome(url):
 
 @st.cache_data(persist=True)
 def fetch_github_sha(url):
-    # Fetch the latest commit SHA from GitHub
     try:
-        response = requests.get(url).text
-    except HTTPError as e:
-        return ":exclamation: HTTP error fetching commit hash"
-    result = json.loads(response)["object"]["sha"][:7]
-    return f"{result}"
+        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except subprocess.CalledProcessError:
+        return None
+    except subprocess.SubprocessError:
+        return None
 
 
 def find_overlaps(bed_df):
