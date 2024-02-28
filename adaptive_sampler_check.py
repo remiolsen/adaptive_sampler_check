@@ -55,15 +55,16 @@ def fetch_github_sha(url):
 
 def find_overlaps(bed_df):
     # Find overlaps in BED file
-    # returns a dataframe with the following columns: chrom, start1, end1, start2, end2, overlap
+    # returns a dataframe with the following columns: chrom, start1, end2, overlap, bed1, bed2
     overlaps = []
     for i, row in bed_df.iterrows():
         for j, row2 in bed_df.iterrows():
             if row[0] == row2[0] and i < j:
                 ovl = min(row[2], row2[2]) - max(row[1], row2[1])
                 if ovl > 0:
-                    overlaps.append([row[0], i + 1, j + 1, ovl])
-    return pd.DataFrame(overlaps, columns=["chrom", "row1", "row2", "overlap"])
+                    overlaps.append([row[0], min(row[1],row2[1]), max(row[2],row2[2]), ovl, i, j])
+
+    return pd.DataFrame(overlaps, columns=["chrom", "start1", "end2", "overlap", "bed1", "bed2"])
 
 
 # Session initialization
@@ -112,7 +113,7 @@ uploaded_file = st.file_uploader(
     key="bed_uploader",
     disabled=st.session_state["state"] > 0,
     help="""
-                                 A minmum of 3 columns are required: chromosome, start, end. 
+                                 A minimum of 3 columns are required: chromosome, start, end. 
                                  Specification of the BED format can be found in the UCSC genome browser FAQ, [here](https://genome.ucsc.edu/FAQ/FAQformat.html#format1).
                                  """,
 )
@@ -297,11 +298,10 @@ with scol3:
         value=False,
         help="This will try to keep the original order of the BED file instead of sorting it by chromosome and start position.",
     )
-merge_ovls = st.toggle(
+merge_overlaps = st.toggle(
     "Merge overlaps",
     key="merge_overlaps",
     value=False,
-    disabled=True,
     help="This will merge overlapping regions in the BED file into a single region.",
 )
 
@@ -317,15 +317,18 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
             0
         ]
         missing = np.round((min_size - r_size) / 2, 0)
+        # The new ROI fits within the chromosome
         if row[1] - missing > 0 and row[2] + missing < length_cutoff:
             mod_bed.loc[i, 1] = row[1] - missing
             mod_bed.loc[i, 2] = row[2] + missing
+        # The new ROI limited by the chromosome start. Using minimum buffer, adding buffer downstream
         elif (
             row[1] - minimum_buffer_size > 0
             and row[2] + missing * 2 - minimum_buffer_size < length_cutoff
         ):
             mod_bed.loc[i, 1] = 0
             mod_bed.loc[i, 2] = row[2] + missing * 2 - row[1]
+        # The new ROI limited by the chromosome end. Using minimum buffer, adding buffer upstream
         elif (
             row[1] - missing * 2 + minimum_buffer_size > 0
             and row[2] + minimum_buffer_size < length_cutoff
@@ -337,6 +340,8 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
                 f":x: Bed modification failed - new interval illegal `{row[0]} : {row[1]-missing} - {row[2]+missing}`"
             )
             bad_bed = True
+
+
     return bad_bed, mod_bed, messages
 
 
@@ -366,13 +371,22 @@ if st.button("Generate", disabled=st.session_state["state"] < 2, key="generate_b
             f":x: Total ROI size is larger than the recommended maximum of `{maximum_ROI_size}`"
         )
         bad_bed = True
+    # Find overlaps in the modified bed
     mod_overlaps = find_overlaps(mod_bed)
-    if not mod_overlaps.empty:
+    if not mod_overlaps.empty and not merge_overlaps:
         for i, row in mod_overlaps.iterrows():
             messages.append(
-                f":x: Found {row[3]} bp overlap in chromosome {row[0]}, bed rows {row[1]} and {row[2]}"
+                f":x: Found {row[3]} bp overlap in chromosome {row[0]}, between coordinates {row[1]} and {row[2]}"
             )
         bad_bed = True
+    elif not mod_overlaps.empty and merge_overlaps:
+        messages.append(
+            f":warning: Found {mod_overlaps.shape[0]} overlapping regions, merging them into a single region"
+        )
+        for i, row in mod_overlaps.iterrows():
+            # Remove last entry of overlap and replace the first with merged region
+            mod_bed.iloc[row[4]] = [row[0], row[1], row[2]]
+            mod_bed = mod_bed.drop(row[5])
     if len(messages) == 0 and not bad_bed:
         messages.append(":white_check_mark: Bed modification successful")
 
