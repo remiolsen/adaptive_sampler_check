@@ -76,6 +76,9 @@ def default_state():
     st.session_state["bed_df"] = pd.DataFrame()
     st.session_state["bed_columns"] = False
     st.session_state["bed_types"] = False
+    st.session_state["bed_sex"] = False
+    st.session_state["bed_order"] = False
+    st.session_state["bad_input_bed"] = False
     st.session_state["bed_overlaps"] = pd.DataFrame()
     st.session_state["assembly_df"] = pd.DataFrame()
     st.session_state["chrom_error"] = False
@@ -85,6 +88,7 @@ def default_state():
     st.session_state["mod_bed"] = pd.DataFrame()
     st.session_state["metadata"] = pd.DataFrame()
     st.session_state["out_bed"] = ""
+    st.session_state["time_hash"] = ""
 
 
 if "state" not in st.session_state:
@@ -138,11 +142,19 @@ if uploaded_file is not None:
     num_cols = st.session_state["bed_df"].shape[1]
     st.session_state["bed_overlaps"] = find_overlaps(st.session_state["bed_df"]).empty
 
+    for i, row in st.session_state["bed_df"].iterrows():
+        if row[0].lower() in ["x", "y", "z", "w", "chrx", "chry", "chrz", "chrw"]:
+            st.session_state["bed_sex"] = True
+        if row[2] < row[1]:
+            st.session_state["bed_order"] = True
+            st.session_state["bad_input_bed"] = True
     if num_cols < 3:
-        st.session_state["bed_columns"] = st.session_state["bed_df"].shape[1]
+        st.session_state["bed_columns"] = True
+        st.session_state["bad_input_bed"] = True
     res = st.session_state["bed_df"].dtypes
     if list(res[:num_cols]) != accepted_bed_types[:num_cols]:
         st.session_state["bed_types"] = res[:6].any()
+        st.session_state["bad_input_bed"] = True
     if st.session_state["state"] < 1:
         st.session_state["state"] = 1
 
@@ -192,6 +204,7 @@ if st.session_state["state"] < 3 and not st.session_state["assembly_df"].empty:
             .values[0]
         ):
             st.session_state["size_error"] = row[1]
+            st.session_state["bad_input_bed"] = True
 
 """
 ## 3. :sleuth_or_spy: QC results
@@ -211,18 +224,15 @@ if st.session_state["state"] > 1:
         bed_results.write(accepted_bed_types)
     else:
         bed_results.write(":white_check_mark: The file has the correct columns types.")
-    if not st.session_state["bed_overlaps"]:
-        bed_results.write(":x: The BED file contains overlapping regions")
-    else:
-        bed_results.write(
-            ":white_check_mark: The BED does not contain any overlapping regions."
-        )
-    # To be implemented
-    bed_results.write(":grey_question: The BED file entries are mostly evenly sized.")
 
-    bed_results.write(
-        ":grey_question: Start coord (col 2) is larger than end coord (col 3)"
-    )
+    if not st.session_state["bed_overlaps"]:
+        bed_results.write(":waning: The BED file contains overlapping regions")
+    if st.session_state["bed_sex"]:
+        bed_results.write(":warning: The BED contains sex chromosomes.")
+    if st.session_state["bed_order"]:
+        bed_results.write(
+            ":x: The BED file contains entries where the start coordinate is larger than the end coordinate."
+        )
 
     """ :dna: Assembly checks """
     assembly_results = st.container(border=True)
@@ -242,10 +252,6 @@ if st.session_state["state"] > 1:
         assembly_results.write(
             ":white_check_mark: All coordinates in the file are smaller than the chromosome size."
         )
-    # To be implemented
-    assembly_results.write(
-        ":grey_question: The BED does not contain any sex chromosomes."
-    )
 
 """
 ## 4. :gear: Parameters
@@ -360,7 +366,7 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
     return bad_bed, mod_bed, messages
 
 
-if st.button("Generate", disabled=st.session_state["state"] < 2, key="generate_button"):
+if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_state["bad_input_bed"] or (st.session_state["chrom_error"] and not chrom_prune), key="generate_button"):
     bad_bed = False
     genome_size = st.session_state["assembly_df"]["size"].sum()
     roi_size = st.session_state["ROI_slider"]
@@ -444,8 +450,9 @@ if st.session_state["state"] > 3:
     local_time = time.localtime()
     tzname_local = local_time.tm_zone
     ts = pd.Timestamp.now(tz=tzname_local).isoformat(timespec="seconds")
-    tsh = hashlib.md5(ts.encode("utf-8")).hexdigest()
-    mod_bed_name = f"{''.join(i for i in experiment_name if i.isalnum())}_{tsh[:10]}.bed"
+    if st.session_state["time_hash"] == "":
+        st.session_state["time_hash"] = hashlib.md5(ts.encode("utf-8")).hexdigest()
+    mod_bed_name = f"{''.join(i for i in experiment_name if i.isalnum())}_{st.session_state['time_hash'][:10]}.bed"
     st.session_state["out_bed"] = st.session_state["mod_bed"].to_csv(
         index=False, sep="\t", header=False
     )
@@ -482,7 +489,7 @@ if st.session_state["state"] > 3:
                 mod_bed_name,
                 hashlib.md5(st.session_state["out_bed"].encode("utf-8")).hexdigest(),
                 ts,
-                tsh,
+                st.session_state["time_hash"],
                 version,
                 program_url,
                 gh_hash,
@@ -507,7 +514,7 @@ if st.session_state["state"] > 3:
         }
     )
     st.table(st.session_state["metadata"])
-    metadata_name = f"{st.session_state['experiment_name']}_metadata_{tsh[:10]}.csv"
+    metadata_name = f"{st.session_state['experiment_name']}_metadata_{st.session_state['time_hash'][:10]}.csv"
 
 bcol1, bcol2 = st.columns(2)
 with bcol1:
