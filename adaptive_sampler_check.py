@@ -7,7 +7,7 @@ import time
 import subprocess
 from io import StringIO
 
-version = "0.1.0-dev"
+version = "0.1.0"
 program_name = "Adaptive Sampler Check"
 program_url = "https://github.com/remiolsen/adaptive_sampler_check/"
 program_gh_api = (
