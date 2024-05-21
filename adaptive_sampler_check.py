@@ -336,28 +336,29 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
     bad_bed = False
     for i, row in mod_bed.iterrows():
         r_size = row[2] - row[1]
-        length_cutoff = assembly_df.loc[assembly_df["chrom"] == row[0], "size"].values[
+        end_coord = assembly_df.loc[assembly_df["chrom"] == row[0], "size"].values[
             0
         ]
+        start_coord = 0
         missing = (min_size - r_size) / 2.0
         # The new ROI fits within the chromosome
-        if row[1] - missing > 0 and row[2] + missing < length_cutoff:
+        if row[1] - missing > 0 and row[2] + missing < end_coord:
             mod_bed.loc[i, 1] = np.round(row[1] - missing,0)
             mod_bed.loc[i, 2] = np.round(row[2] + missing,0)
         # The new ROI limited by the chromosome start. Using minimum buffer, adding buffer downstream
         elif (
-            row[1] - minimum_buffer_size > 0
-            and row[2] + np.round(missing * 2,0) - minimum_buffer_size < length_cutoff
+            row[1] - minimum_buffer_size > start_coord
+            and row[2] + np.round(missing * 2,0) - minimum_buffer_size < end_coord
         ):
-            mod_bed.loc[i, 1] = 0
-            mod_bed.loc[i, 2] = row[2] + np.round(missing * 2,0) - row[1]
+            mod_bed.loc[i, 1] = start_coord
+            mod_bed.loc[i, 2] = min_size
         # The new ROI limited by the chromosome end. Using minimum buffer, adding buffer upstream
         elif (
-            row[1] - missing * 2 + minimum_buffer_size > 0
-            and row[2] + minimum_buffer_size < length_cutoff
+            row[1] - missing * 2 + minimum_buffer_size > start_coord
+            and row[2] + minimum_buffer_size < end_coord
         ):
-            mod_bed.loc[i, 1] = row[1] - np.round(missing * 2,0) - (length_cutoff - row[2])
-            mod_bed.loc[i, 2] = length_cutoff
+            mod_bed.loc[i, 1] = end_coord - min_size
+            mod_bed.loc[i, 2] = end_coord
         else:
             messages.append(
                 f":x: Bed modification failed - new interval illegal `{row[0]} : {row[1]-missing} - {row[2]+missing}`"
