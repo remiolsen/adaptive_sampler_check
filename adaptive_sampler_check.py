@@ -447,9 +447,7 @@ metadata_name = f"{st.session_state['experiment_name']}_metadata.csv"
 gh_hash = fetch_github_sha(program_gh_api)
 
 if st.session_state["state"] > 3:
-    local_time = time.localtime()
-    tzname_local = local_time.tm_zone
-    ts = pd.Timestamp.now(tz=tzname_local).isoformat(timespec="seconds")
+    ts = pd.Timestamp.now().isoformat(timespec="seconds")
     if st.session_state["time_hash"] == "":
         st.session_state["time_hash"] = hashlib.md5(ts.encode("utf-8")).hexdigest()
     mod_bed_name = f"{''.join(i for i in experiment_name if i.isalnum())}_{st.session_state['time_hash'][:10]}.bed"
