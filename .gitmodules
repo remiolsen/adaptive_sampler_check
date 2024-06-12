@@ -1,0 +1,3 @@
+[submodule "delly"]
+	path = delly
+	url = https://github.com/dellytools/delly/

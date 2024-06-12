@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 from natsort import index_natsorted
 import hashlib
-import time
+import os
+import re
+import sys
 import subprocess
 from io import StringIO
 
@@ -32,7 +34,13 @@ genomes = pd.DataFrame(
     },
     index=["URL", "Assembly"],
 ).T
-accepted_bed_types = ["object", "int64", "int64", "int64", "int64", "object"]
+blacklist = {
+        "human (GRCh38/hg38)": "delly/excludeTemplates/human.hg38.excl.tsv",
+        "mouse (GRCm38/mm10)": "delly/excludeTemplates/mouse.mm10.excl.tsv",
+        "fruit fly (BDGP6/dm6)": "delly/excludeTemplates/drosophila.dm6.excl.tsv",
+}
+
+accepted_bed_types = ["object", "int64", "int64", "in   t64", "int64", "object"]
 minimum_ROI_size = 0.001
 maximum_ROI_size = 0.1
 
@@ -70,6 +78,36 @@ def find_overlaps(bed_df):
 
     return pd.DataFrame(overlaps, columns=["chrom", "start1", "end2", "overlap", "bed1", "bed2"])
 
+def generate_agp(bed_df_i, assembly_df):
+    # Generate AGP file with ROIs as contigs and their genomic locations as gaps
+    # scaffold, start, end, part_number, component_type, component_id, component_start / gap, component_end / gap, orientation / linkage
+    agp = []; cid = 1
+    bed_df = bed_df_i.reset_index(drop=True)
+    for i, row in bed_df.iterrows():
+        agp.append([f"ROI_{row[0]}:{row[1]}-{row[2]}", 1, row[2] - row[1], cid, "W", f"{row[0]}", row[1], row[2], "+"])
+        cid += 1
+    for i, row in assembly_df.iterrows():
+        # There is no ROI on this chromosome
+        if row[0] not in bed_df[0].unique():
+            agp.append([f"{row[0]}", 1, row[1], cid, "W", row[0], 1, row[1], "+"])
+            cid += 1
+        else:
+            # We need to create new scaffolds where the ROIs are substituted with gaps
+            k=0
+            for j, row2 in bed_df[bed_df[0] == row[0]].iterrows():
+                if k == 0:
+                    agp.append([f"{row[0]}", 1, row2[1], cid, "W", row[0], 1, row2[1], "+"])
+                    cid += 1
+                agp.append([f"{row[0]}", row2[1]+1, row2[2], cid, "N", row2[2]-row2[1], "scaffold", "yes", "unspecified"])
+                cid += 1
+                if j == bed_df[bed_df[0] == row[0]].index[-1]:
+                    agp.append([f"{row[0]}", row2[2]+1, row[1], cid, "W", row[0], row2[2]+1, row[1], "+"])
+                    cid += 1
+                else:
+                    agp.append([f"{row[0]}", row2[2]+1, bed_df.loc[j+1,1], cid, "W", row[0], row2[2]+1, bed_df.loc[j+1,1], "+"])
+                    cid += 1
+                k+=1
+    return pd.DataFrame(agp, columns=["scaffold", "start", "end", "part_number", "component_type", "component_id", "component_start / gap", "component_end / gap", "orientation / linkage"]) 
 
 # Session initialization
 def default_state():
@@ -88,7 +126,9 @@ def default_state():
     st.session_state["BED_mod_failed"] = False
     st.session_state["mod_bed"] = pd.DataFrame()
     st.session_state["metadata"] = pd.DataFrame()
+    st.session_state["blacklist"] = False
     st.session_state["out_bed"] = ""
+    st.session_state["agp"] = pd.DataFrame()
     st.session_state["time_hash"] = ""
 
 gh_hash = fetch_github_sha(program_gh_api)
@@ -104,14 +144,6 @@ This performs a series of checks on the input BED file and selected assembly for
 Additionally, it it provides the ability to adjust the region of interest (ROI) size to be used to be used by adding a buffer to each site,
 whilst keeping keeping the total and individual ROI sizes within a recommended range.
 """
-
-if st.button(
-    ":rewind: Start over!",
-    key="restart_button",
-    help="This will reset the app to its initial state.",
-):
-    default_state()
-    st.rerun()
 
 """
 ## 1. :page_facing_up: Upload a BED file
@@ -208,6 +240,19 @@ if st.session_state["state"] < 3 and not st.session_state["assembly_df"].empty:
             st.session_state["size_error"] = row[1]
             st.session_state["bad_input_bed"] = True
 
+    blacklist_file = blacklist.get(assembly, None)
+    if blacklist_file:
+        filter = re.compile(r"(telomere|centromere|heterochromatin|hetrochromatin)")
+        string_data = []
+        with open(blacklist_file, "r") as f:
+            file_data = f.readlines()
+            for line in file_data:
+                if re.search(filter, line) is not None:
+                    string_data.append(line)
+        st.session_state["blacklist"] = pd.read_csv(
+            StringIO("\n".join(string_data)), header=None, sep="\t"
+        )
+
 """
 ## 3. :sleuth_or_spy: QC results
 """
@@ -238,6 +283,10 @@ if st.session_state["state"] > 1:
 
     """ :dna: Assembly checks """
     assembly_results = st.container(border=True)
+    if st.session_state["blacklist"].empty:
+        assembly_results.write(f":x: No blacklist available for assembly {assembly}")
+    else:
+        assembly_results.write(f":white_check_mark: Blacklist loaded for {assembly}") 
     if st.session_state["chrom_error"]:
         assembly_results.write(
             f":x: The file contains the following chromosomes not present in the assembly: `{st.session_state['chrom_error']}`"
@@ -294,8 +343,8 @@ with col2:
         max_value=maximum_ROI_size,
         key="ROI_slider",
         value=minimum_ROI_size,
-        step=0.001,
-        format="%.3f",
+        step=0.0001,
+        format="%.4f",
         help="This will expand the size of the ROIs of the input bed file to a selected minimum size (default: 0.1pct of the genome size)",
     )
 
@@ -306,6 +355,12 @@ with scol1:
         key="size_override",
         value=False,
         help="This will override the allowable recommended minimum and maximum ROI sizes. Use with caution.",
+    )
+    merge_overlaps = st.toggle(
+        "Merge overlaps",
+        key="merge_overlaps",
+        value=True,
+        help="This will merge overlapping regions in the BED file into a single region.",
     )
 with scol2:
     chrom_prune = st.toggle(
@@ -321,12 +376,6 @@ with scol3:
         value=False,
         help="This will try to keep the original order of the BED file instead of sorting it by chromosome and start position.",
     )
-merge_overlaps = st.toggle(
-    "Merge overlaps",
-    key="merge_overlaps",
-    value=False,
-    help="This will merge overlapping regions in the BED file into a single region.",
-)
 
 
 @st.cache_data
@@ -334,6 +383,7 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
     mod_bed = bed_df.copy()
     messages = []
     bad_bed = False
+
     for i, row in mod_bed.iterrows():
         r_size = row[2] - row[1]
         end_coord = assembly_df.loc[assembly_df["chrom"] == row[0], "size"].values[
@@ -365,11 +415,20 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
             )
             bad_bed = True
 
+    if not st.session_state["blacklist"].empty:
+        mod_blacklist = pd.concat([st.session_state["blacklist"], mod_bed])
+        blacklist_ovl = find_overlaps(mod_blacklist)
+        if not blacklist_ovl.empty:
+
+            for i, row in blacklist_ovl.iterrows():
+                messages.append(
+                    f":warning: Found {row[3]} bp overlap with blacklist of type **{st.session_state['blacklist'].iat[row[5],3]}** in chromosome {row[0]}, between coordinates {row[1]} and {row[2]}"
+                )
 
     return bad_bed, mod_bed, messages
 
-
 if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_state["bad_input_bed"] or (st.session_state["chrom_error"] and not chrom_prune), key="generate_button"):
+
     bad_bed = False
     genome_size = st.session_state["assembly_df"]["size"].sum()
     roi_size = st.session_state["ROI_slider"]
@@ -389,6 +448,7 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
         mod_bed = mod_bed.sort_values(
             by=0, key=lambda x: np.argsort(index_natsorted(mod_bed[0]))
         )
+
     total_fraction = (mod_bed[2].sum() - mod_bed[1].sum()) / genome_size
     if total_fraction > maximum_ROI_size and not st.session_state["size_override"]:
         messages.append(
@@ -414,6 +474,7 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
     if len(messages) == 0 and not bad_bed:
         messages.append(":white_check_mark: Bed modification successful")
 
+
     total_size = mod_bed[2].sum() - mod_bed[1].sum() / 1000000
     median_size = (mod_bed[2] - mod_bed[1]).median() / 1000000
     messages.append(
@@ -436,8 +497,11 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
     if bad_bed:
         st.session_state["state"] = 3
     else:
-        st.session_state["state"] = 4
 
+        # Generate AGP file
+        st.session_state["agp"] = generate_agp(mod_bed, st.session_state["assembly_df"])
+
+        st.session_state["state"] = 4
         # Fallback names for output files
         mod_bed_name = f"{''.join(i for i in experiment_name if i.isalnum())}.bed"
         metadata_name = f"{st.session_state['experiment_name']}_metadata.csv"
@@ -516,7 +580,8 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
 """
 if st.session_state["state"] >= 4:
     st.table(st.session_state["metadata"])
-    bcol1, bcol2 = st.columns(2)
+    agp_filename = f"{st.session_state['experiment_name']}_{st.session_state['time_hash'][:10]}.agp"
+    bcol1, bcol2, bcol3 = st.columns(3)
     with bcol1:
         st.download_button(
             "Download BED",
@@ -533,7 +598,18 @@ if st.session_state["state"] >= 4:
             "text/plain",
             key="dl_metadata"
         )
+    with bcol3:
+        st.download_button(
+            "Download AGP*",
+            st.session_state["agp"].to_csv(index=False, sep="\t", header=False),
+            agp_filename,
+            "text/plain",
+            key="dl_agp"
+        )
 
+    st.write("""\* AGP file is generated from the modified BED file, where ROIs are represented as contigs and gaps as genomic locations.
+             This is optional and can be used to track enichment of the ROIs in real time during the sequencing run. To do this you have generate a new fasta reference using e.g. agptools:""")
+    st.code(f"agptools assemble input_reference.fasta {agp_filename} > {agp_filename[:len(agp_filename)-4]}.fasta")
 
 """
 ---
