@@ -40,7 +40,7 @@ blacklist = {
         "fruit fly (BDGP6/dm6)": "delly/excludeTemplates/drosophila.dm6.excl.tsv",
 }
 
-accepted_bed_types = ["object", "int64", "int64", "in   t64", "int64", "object"]
+accepted_bed_types = ["object", "int64", "int64"]
 minimum_ROI_size = 0.001
 maximum_ROI_size = 0.1
 
@@ -77,6 +77,17 @@ def find_overlaps(bed_df):
                     overlaps.append([row[0], min(row[1],row2[1]), max(row[2],row2[2]), ovl, i, j])
 
     return pd.DataFrame(overlaps, columns=["chrom", "start1", "end2", "overlap", "bed1", "bed2"])
+
+def do_overlap_merge(in_df):
+    bed_df = in_df.copy()
+    while not find_overlaps(bed_df).empty:
+        mod_overlaps = find_overlaps(bed_df)
+        for i, row in mod_overlaps.iterrows():
+            if row[4] in bed_df.index and row[5] in bed_df.index:
+                # Remove last entry of overlap and replace the first with merged region
+                bed_df.loc[row[4]] = [row[0], row[1], row[2]]
+                bed_df = bed_df.drop(row[5])
+    return bed_df
 
 def generate_agp(bed_df_i, assembly_df):
     # Generate AGP file with ROIs as contigs and their genomic locations as gaps
@@ -169,7 +180,7 @@ if uploaded_file is not None:
         if not line.startswith("track"):
             string_data.append(line)
     st.session_state["bed_df"] = pd.read_csv(
-        StringIO("\n".join(string_data)), header=None, sep="\t"
+        StringIO("\n".join(string_data)), header=None, usecols=[0,1,2],sep="\t"
     )
     bed_exp = st.expander("See content of the file")
     bed_exp.write(st.session_state["bed_df"])
@@ -187,7 +198,7 @@ if uploaded_file is not None:
         st.session_state["bad_input_bed"] = True
     res = st.session_state["bed_df"].dtypes
     if list(res[:num_cols]) != accepted_bed_types[:num_cols]:
-        st.session_state["bed_types"] = res[:6].any()
+        st.session_state["bed_types"] = res[:num_cols].any()
         st.session_state["bad_input_bed"] = True
     if st.session_state["state"] < 1:
         st.session_state["state"] = 1
@@ -273,7 +284,7 @@ if st.session_state["state"] > 1:
         bed_results.write(":white_check_mark: The file has the correct columns types.")
 
     if not st.session_state["bed_overlaps"]:
-        bed_results.write(":waning: The BED file contains overlapping regions")
+        bed_results.write(":warning: The BED file contains overlapping regions")
     if st.session_state["bed_sex"]:
         bed_results.write(":warning: The BED contains sex chromosomes.")
     if st.session_state["bed_order"]:
@@ -415,16 +426,6 @@ def modify_bed(bed_df, assembly_df, min_size, minimum_buffer_size):
             )
             bad_bed = True
 
-    if not st.session_state["blacklist"].empty:
-        mod_blacklist = pd.concat([st.session_state["blacklist"], mod_bed])
-        blacklist_ovl = find_overlaps(mod_blacklist)
-        if not blacklist_ovl.empty:
-
-            for i, row in blacklist_ovl.iterrows():
-                messages.append(
-                    f":warning: Found {row[3]} bp overlap with blacklist of type **{st.session_state['blacklist'].iat[row[5],3]}** in chromosome {row[0]}, between coordinates {row[1]} and {row[2]}"
-                )
-
     return bad_bed, mod_bed, messages
 
 if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_state["bad_input_bed"] or (st.session_state["chrom_error"] and not chrom_prune), key="generate_button"):
@@ -465,15 +466,21 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
         bad_bed = True
     elif not mod_overlaps.empty and merge_overlaps:
         messages.append(
-            f":warning: Found {mod_overlaps.shape[0]} overlapping regions, merging them into a single region"
+            f":warning: Found {mod_overlaps.shape[0]} overlaps, merging them into non-overlapping regions."
         )
-        for i, row in mod_overlaps.iterrows():
-            # Remove last entry of overlap and replace the first with merged region
-            mod_bed.iloc[row[4]] = [row[0], row[1], row[2]]
-            mod_bed = mod_bed.drop(row[5])
+        mod_bed = do_overlap_merge(mod_bed)
     if len(messages) == 0 and not bad_bed:
         messages.append(":white_check_mark: Bed modification successful")
 
+    if not st.session_state["blacklist"].empty:
+        mod_blacklist = pd.concat([st.session_state["blacklist"], mod_bed])
+        blacklist_ovl = find_overlaps(mod_blacklist)
+        if not blacklist_ovl.empty:
+
+            for i, row in blacklist_ovl.iterrows():
+                messages.append(
+                    f":warning: Found {row[3]} bp overlap with blacklist of type **{st.session_state['blacklist'].iat[row[5],3]}** in chromosome {row[0]}, between coordinates {row[1]} and {row[2]}"
+                )
 
     total_size = mod_bed[2].sum() - mod_bed[1].sum() / 1000000
     median_size = (mod_bed[2] - mod_bed[1]).median() / 1000000
