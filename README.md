@@ -12,13 +12,22 @@ whilst keeping keeping the total and individual ROI sizes within a recommended r
 
 ## Installation
 
-Instructions on how to install and set up the project.
+This app is deployed in the Streamlit cloud click >[here](https://adaptivesamplercheck.streamlit.app/)< to run it now!
+Or take a look at the available deployment options available in the [documentation](https://docs.streamlit.io/deploy).
+
+This software requires `git` `python` v.3.10 and `pip` to install locally:
+
+```
+git clone https://github.com/remiolsen/adaptive_sampler_check/
+cd adaptive_sampler_check
+pip install -r requirements.txt
+```
 
 ## Usage
 
-Instructions on how to use the project or any relevant examples.
+To run this app locally use:
 
-## Contributing
-
-Guidelines for contributing to the project.
+```
+streamlit run 01-App.py
+```
 
