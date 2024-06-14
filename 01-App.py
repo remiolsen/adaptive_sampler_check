@@ -137,7 +137,7 @@ def default_state():
     st.session_state["BED_mod_failed"] = False
     st.session_state["mod_bed"] = pd.DataFrame()
     st.session_state["metadata"] = pd.DataFrame()
-    st.session_state["blacklist"] = False
+    st.session_state["blacklist"] = pd.DataFrame()
     st.session_state["out_bed"] = ""
     st.session_state["agp"] = pd.DataFrame()
     st.session_state["time_hash"] = ""
