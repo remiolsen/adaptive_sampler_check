@@ -12,7 +12,7 @@ whilst keeping keeping the total and individual ROI sizes within a recommended r
 
 ## Installation
 
-This app is deployed in the Streamlit cloud click >[here](https://adaptivesamplercheck.streamlit.app/)< to run it now!
+This app is deployed in the Streamlit cloud click >[here](https://adaptive-sampler-check.streamlit.app/)< to run it now!
 Or take a look at the available deployment options available in the [documentation](https://docs.streamlit.io/deploy).
 
 This software requires `git` `python` v.3.10 and `pip` to install locally:
