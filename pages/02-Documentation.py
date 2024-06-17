@@ -98,7 +98,7 @@ Also note that if your ROI is a small \% of the genome (<0.01) it might take som
 
 ### What did you do to my BED file?
 
-If you are in doubt, please inspect import the resulting BED file to a genome browser like [IGV](https://igv.org/).     
+If you are in doubt, you can inspect resulting BED file by importing it as a track to a genome browser like [IGV](https://igv.org/).
 And if you spot anything wrong feel free to either create a [GitHub issue](https://github.com/remiolsen/adaptive_sampler_check/issues) or contact me directly at <remi-andre.olsen@scilifelab.se>.
          
 """)
