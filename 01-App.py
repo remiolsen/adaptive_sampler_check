@@ -35,9 +35,9 @@ genomes = pd.DataFrame(
     index=["URL", "Assembly"],
 ).T
 blacklist = {
-        "human (GRCh38/hg38)": "delly/excludeTemplates/human.hg38.excl.tsv",
-        "mouse (GRCm38/mm10)": "delly/excludeTemplates/mouse.mm10.excl.tsv",
-        "fruit fly (BDGP6/dm6)": "delly/excludeTemplates/drosophila.dm6.excl.tsv",
+        "human (GRCh38/hg38)": "resources/human.hg38.excl.tsv",
+        "mouse (GRCm38/mm10)": "resources/mouse.mm10.excl.tsv",
+        "fruit fly (BDGP6/dm6)": "resources/drosophila.dm6.excl.tsv",
 }
 
 accepted_bed_types = ["object", "int64", "int64"]
