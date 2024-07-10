@@ -614,6 +614,8 @@ if st.session_state["state"] >= 4:
             "text/plain",
             key="dl_bed"
         )
+        if toggle_agp:
+            st.warning(":warning: AGP mode! Please remember that this BED file will only work with a custom reference genome!")
     with bcol2:
         st.download_button(
             "Download Metadata",
@@ -632,9 +634,10 @@ if st.session_state["state"] >= 4:
             disabled=not toggle_agp
         )
 
-    st.write("""\* AGP file is generated from the modified BED file, where ROIs are represented as contigs and gaps as genomic locations.
-             This is optional and can be used to track enichment of the ROIs in real time during the sequencing run. To do this you have generate a new fasta reference using e.g. agptools:""")
-    st.code(f"agptools assemble input_reference.fasta {agp_filename} > {agp_filename[:len(agp_filename)-4]}.fasta")
+    if toggle_agp:
+        st.write("""\* AGP file is generated from the modified BED file, where ROIs are represented as contigs and gaps as genomic locations.
+                This is optional and can be used to track enichment of the ROIs in real time during the sequencing run. To do this you have generate a new fasta reference using e.g. agptools:""")
+        st.code(f"agptools assemble input_reference.fasta {agp_filename} > {agp_filename[:len(agp_filename)-4]}.fasta")
 
 """
 ---
