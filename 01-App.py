@@ -380,6 +380,12 @@ with scol2:
         value=False,
         help="This will remove any rows in the BED file that contain chromosomes not present in the selected assembly.",
     )
+    toggle_agp = st.toggle(
+        "Generate AGP",
+        key="generate_agp",
+        value=False,
+        help="This will generate an AGP file from the modified BED file, where ROIs are represented as contigs and their genomic locations as gaps.",
+    )
 with scol3:
     no_sort = st.toggle(
         "No sorting",
@@ -449,6 +455,11 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
         mod_bed = mod_bed.sort_values(
             by=0, key=lambda x: np.argsort(index_natsorted(mod_bed[0]))
         )
+    if st.session_state["generate_agp"] and not st.session_state["merge_overlaps"]:
+        messages.append(
+            ":x: AGP generation requires merging of overlapping regions. Please enable the 'Merge overlaps' option."
+        )
+        bad_bed = True
 
     total_fraction = (mod_bed[2].sum() - mod_bed[1].sum()) / genome_size
     if total_fraction > maximum_ROI_size and not st.session_state["size_override"]:
@@ -506,7 +517,8 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
     else:
 
         # Generate AGP file
-        st.session_state["agp"] = generate_agp(mod_bed, st.session_state["assembly_df"])
+        if toggle_agp:
+           st.session_state["agp"] = generate_agp(mod_bed, st.session_state["assembly_df"])
 
         st.session_state["state"] = 4
         # Fallback names for output files
@@ -611,7 +623,8 @@ if st.session_state["state"] >= 4:
             st.session_state["agp"].to_csv(index=False, sep="\t", header=False),
             agp_filename,
             "text/plain",
-            key="dl_agp"
+            key="dl_agp",
+            disabled=not toggle_agp
         )
 
     st.write("""\* AGP file is generated from the modified BED file, where ROIs are represented as contigs and gaps as genomic locations.
