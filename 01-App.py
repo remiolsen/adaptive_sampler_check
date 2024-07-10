@@ -9,7 +9,7 @@ import sys
 import subprocess
 from io import StringIO
 
-version = "0.2.0"
+version = "0.2.1"
 program_name = "Adaptive Sampler Check"
 program_url = "https://github.com/remiolsen/adaptive_sampler_check/"
 program_gh_api = (

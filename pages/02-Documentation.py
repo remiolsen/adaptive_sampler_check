@@ -86,8 +86,10 @@ especially if you are exclusively targeting these regions.
 
 ### What is an AGP file? And do I need it?
 
-The short answer is that, no you would probably not need it. file is generated from the modified BED file, where ROIs are represented as contigs and gaps as genomic locations.
-This is optional and can be used to track enrichment of the ROIs in real time during the sequencing run. To do this you have generate a new fasta reference using e.g. [agptools](https://warrenlab.github.io/agptools/):
+The short answer is that, no you would probably not need it. This file is generated alongside a different BED file, where ROIs are represented as contigs and gaps as genomic locations.
+This is optional and can be used to track enrichment of the ROIs in real time during the sequencing run. Be aware that the BED file generated in this mode will only work on a modified reference genome assembly when 
+running adaptive sampling
+To generate this modified assembly you will have to use the AGP file in combination with the input reference genome use a tool like e.g. [agptools](https://warrenlab.github.io/agptools/):
 
          agptools assemble reference.fasta modifications.agp > modified_reference.fasta
 
