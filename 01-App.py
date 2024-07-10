@@ -504,6 +504,7 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
     mod_exp = st.expander("See modified BED")
     mod_exp.write(mod_bed)
 
+
     st.session_state["mod_bed"] = mod_bed
     if not st.session_state["operator_name"]:
         st.error(":exclamation: Operator name is required")
@@ -518,7 +519,11 @@ if st.button("Generate", disabled=st.session_state["state"] < 2 or st.session_st
 
         # Generate AGP file
         if toggle_agp:
-           st.session_state["agp"] = generate_agp(mod_bed, st.session_state["assembly_df"])
+            st.session_state["agp"] = generate_agp(mod_bed, st.session_state["assembly_df"])
+            # Change modded bed entries to stand-alone scaffolds
+            mod_bed[0] = mod_bed.apply(lambda x: f"ROI_{x[0]}:{x[1]}-{x[2]}", axis=1)
+            mod_bed[2] = mod_bed.apply(lambda x: x[2]-x[1], axis=1)
+            mod_bed[1] = mod_bed.apply(lambda x: 1, axis=1)
 
         st.session_state["state"] = 4
         # Fallback names for output files
